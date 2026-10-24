@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JLC Browser</title>
+  <link rel="stylesheet" href="browser.css">
+  <script src="browser-ui.js" defer></script>
+</head>
+<body>
+  <header>
+    <div class="tab-row">
+      <div id="tabs" role="tablist" aria-label="Open pages"></div>
+      <button id="new-tab" class="icon-button" title="New tab (Ctrl+T)" aria-label="New tab"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12"/></svg></button>
+    </div>
+    <form id="navigation" aria-label="Page navigation">
+      <button id="back" type="button" class="icon-button" title="Back (Alt+Left)" aria-label="Back" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m11 4-6 6 6 6M5 10h11"/></svg></button>
+      <button id="forward" type="button" class="icon-button" title="Forward (Alt+Right)" aria-label="Forward" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m9 4 6 6-6 6M4 10h11"/></svg></button>
+      <button id="reload" type="button" class="icon-button" title="Reload (Ctrl+R)" aria-label="Reload"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 8a6 6 0 1 0 0 5M16 3v5h-5"/></svg></button>
+      <button id="translate" type="button" class="translate-button" title="Translate this page to English using Google and saved translations" aria-pressed="false" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h9M7.5 3v2M5 5c1 4 3 6 6 8M10 5c-1 4-3 6-7 8M11 17l3-8 3 8M12 14h4"/></svg><span id="translate-label">Translate</span></button>
+      <span id="translate-status" class="translation-message" role="status" hidden></span>
+      <input id="address" type="text" aria-label="Website address" placeholder="Enter a website address" spellcheck="false" autocomplete="off">
+    </form>
+  </header>
+</body>
+</html>

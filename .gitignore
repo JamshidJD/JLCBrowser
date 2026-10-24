@@ -1,0 +1,21 @@
+node_modules/
+diagnostics/
+profile/
+prepared-uploads/
+*.png
+release/
+translations.json
+translations.json.tmp
+
+# Local credentials and private captures must never be published.
+.env
+.env.*
+.npmrc
+.netrc
+.git-credentials
+*.pem
+*.key
+*.p12
+*.pfx
+*.har
+*.log
