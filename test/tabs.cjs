@@ -20,9 +20,16 @@ async function until(predicate, label) {
 
 app.whenReady().then(async () => {
   let posted = '';
+  let finishLoading;
   const requests = [];
   const server = http.createServer((request, response) => {
     requests.push(request.url);
+    if (request.url === '/loading') {
+      response.writeHead(200, { 'Content-Type': 'text/html' });
+      response.write('<title>Loading page</title><p>Waiting for the response to finish</p>');
+      finishLoading = () => response.end();
+      return;
+    }
     if (request.method === 'POST') {
       request.on('data', chunk => { posted += chunk; });
       request.on('end', () => response.end('<title>Posted tab</title>'));
@@ -44,6 +51,25 @@ app.whenReady().then(async () => {
   const original = browser.contents;
   await until(async () => await window.webContents.executeJavaScript('document.querySelectorAll(".tab").length') === 1, 'initial tab strip');
   assert.equal(await original.executeJavaScript('typeof require + ":" + typeof window.browser'), 'undefined:undefined');
+
+  const loadingTab = browser.add({}, false);
+  await loadingTab.ready;
+  const loading = loadingTab.view.webContents.loadURL(`${origin}/loading`);
+  const loadingSelector = `.tab-select[data-id="${loadingTab.id}"]`;
+  await until(async () => finishLoading && await window.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(loadingSelector)})?.getAttribute('aria-busy') === 'true'`), 'loading indicator on background tab');
+  const indicator = await window.webContents.executeJavaScript(`(() => {
+    const status = document.querySelector(${JSON.stringify(loadingSelector)}).querySelector('.status');
+    const style = getComputedStyle(status, '::before');
+    return { animation: style.animationName, duration: style.animationDuration, reduced: matchMedia('(prefers-reduced-motion: reduce)').matches };
+  })()`);
+  assert.equal(indicator.animation, indicator.reduced ? 'none' : 'tab-loading');
+  if (!indicator.reduced) assert.equal(indicator.duration, '0.8s');
+  assert.equal(browser.contents, original, 'background loading does not switch tabs');
+  finishLoading(); await loading;
+  await until(async () => await window.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(loadingSelector)})?.getAttribute('aria-busy') === 'false'`), 'loading indicator stops when response finishes');
+  assert.equal(await window.webContents.executeJavaScript(`getComputedStyle(document.querySelector(${JSON.stringify(loadingSelector)}).querySelector('.status'), '::before').animationName`), 'none');
+  browser.close(loadingTab.id);
+  await until(() => browser.tabs.length === 1, 'close loading fixture');
 
   await original.executeJavaScript('document.querySelector("#link").click()', true);
   await until(() => browser.tabs.length === 2 && browser.contents.getTitle() === 'Child tab', 'target=_blank');

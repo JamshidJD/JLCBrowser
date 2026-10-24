@@ -8,7 +8,7 @@ This repository contains the source code and tests. Local browser profiles, logi
 
 ## Run
 
-For the packaged Windows app, double-click **JLC Browser** on the desktop, or run `release/JLCBrowser-0.3.0-win-x64/JLCBrowser.exe`. Keep the whole release folder together. Node.js and npm are not needed to run it. This local build is unsigned.
+For the packaged Windows app, double-click **JLC Browser** on the desktop, or run `release/JLCBrowser-0.3.2-win-x64/JLCBrowser.exe`. Keep the whole release folder together. Node.js and npm are not needed to run it. This local build is unsigned.
 
 The packaged app stores its profile and logs under `%APPDATA%\JLCBrowser`, separately from the development profile. Sign in once when first opening it. The same DNS and performance-script exclusions are enabled without command-line arguments. `JLCBrowser.exe --baseline --system-dns` restores the baseline settings.
 
@@ -32,6 +32,8 @@ To create a new Windows x64 release, run `npm.cmd run build:win`. This uses Elec
 Website links and buttons that open a new page now open a visible tab in the same window. This includes `target="_blank"`, `window.open`, blank popups that navigate afterward, and form POST popups. Chromium's popup handling retains normal opener messaging, referrer and form data. Ctrl-click/middle-click links open background tabs; tabs share the same login/session and each has its own network capture. Switching tabs keeps the other pages alive, with background throttling disabled.
 
 Use **+** or **Ctrl+T** for a new tab, **Ctrl+W** to close it, **Ctrl+Tab** / **Ctrl+Shift+Tab** to switch, and **Ctrl+L** to enter an address. The toolbar provides back, forward and reload for the active tab. Closing the last tab closes the browser. A page that prevents unloading can ask you to stay before closing. Open tabs are not restored after restarting; login data still persists in the existing profile.
+
+Each tab shows a rotating ring beside its title while its page is loading, including background tabs. It stops when loading finishes or fails. The indicator keeps the same space in every state and respects the Windows reduced-motion preference.
 
 ## Translation
 

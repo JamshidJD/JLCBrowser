@@ -22,6 +22,7 @@ window.browser.onState(state => {
     select.className = 'tab-select';
     select.setAttribute('role', 'tab');
     select.setAttribute('aria-selected', String(tab.id === state.active));
+    select.setAttribute('aria-busy', String(Boolean(tab.loading)));
     select.setAttribute('aria-label', `${tab.title}${tab.loading ? ', loading' : ''}${tab.error ? ', page failed to load' : ''}`);
     select.tabIndex = tab.id === state.active ? 0 : -1;
     select.dataset.id = tab.id;

@@ -14,9 +14,12 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--focus); out
 .tab.selected:hover { background: var(--surface); }
 .tab-select { border: 0; background: transparent; height: 36px; flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0 10px; text-align: left; }
 .tab-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.status { flex: none; width: 6px; height: 6px; border-radius: 50%; background: #65748a; }
-.tab.loading .status { background: var(--focus); }
-.tab.error .status { background: #ad2c22; }
+.status { flex: none; width: 14px; height: 14px; display: flex; align-items: center; justify-content: center; }
+.status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #65748a; }
+.tab.loading .status::before { box-sizing: border-box; width: 14px; height: 14px; background: transparent; border: 2px solid #c3d2e6; border-top-color: var(--focus); border-right-color: var(--focus); animation: tab-loading .8s linear infinite; }
+.tab.error .status::before { background: #ad2c22; }
+@keyframes tab-loading { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .tab.loading .status::before { animation: none; } }
 .tab-close { width: 28px; height: 28px; margin-right: 4px; }
 .icon-button, .tab-close { display: inline-flex; flex: none; align-items: center; justify-content: center; padding: 6px; border: 0; border-radius: 5px; background: transparent; }
 .icon-button { width: 32px; height: 32px; }

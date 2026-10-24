@@ -1,6 +1,6 @@
 {
   "name": "jlc-browser",
-  "version": "0.3.0",
+  "version": "0.3.2",
   "private": true,
   "description": "A local JLC browser with HTTP and WebSocket diagnostics",
   "main": "main.cjs",
