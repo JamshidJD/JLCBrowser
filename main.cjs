@@ -4,13 +4,16 @@ const path = require('node:path');
 const { endpoint, attachDiagnostics, isPerformanceTelemetry } = require('./diagnostics.cjs');
 const { Worker } = require('node:worker_threads');
 const { BrowserTabs } = require('./browser-tabs.cjs');
-const { TranslationService } = require('./translation-service.cjs');
+const { TranslationService, googleTranslate } = require('./translation-service.cjs');
+const { createTranslationFetch } = require('./translation-network.cjs');
+const { LocalTranslator } = require('./local-translator.cjs');
 
 app.setName('JLC Browser');
 const dataRoot = app.isPackaged ? path.join(app.getPath('appData'), 'JLCBrowser') : __dirname;
 fs.mkdirSync(path.join(dataRoot, 'profile'), { recursive: true });
 app.setPath('userData', path.join(dataRoot, 'profile'));
 let browser;
+let localTranslator;
 const logs = path.join(dataRoot, 'diagnostics');
 fs.mkdirSync(logs, { recursive: true });
 const logFile = path.join(logs, `${new Date().toISOString().replace(/[:.]/g, '-')}.jsonl`);
@@ -116,7 +119,15 @@ app.whenReady().then(async () => {
   ]));
   const window = new BrowserWindow({ width: 1360, height: 950, minWidth: 600, minHeight: 400, title: 'JLC Browser', webPreferences: { ...preferences, backgroundThrottling: false, preload: path.join(__dirname, 'browser-preload.cjs') } });
   let translator;
-  try { translator = new TranslationService(path.join(dataRoot, 'translations.json')); }
+  try {
+    const translationNetwork = session.fromPartition('translation-network');
+    const fetchTranslation = createTranslationFetch(translationNetwork);
+    const translate = (text, signal) => googleTranslate(text, signal, fetchTranslation);
+    localTranslator = new LocalTranslator();
+    translator = new TranslationService(path.join(dataRoot, 'translations.json'), translate, {
+      phrases: require('./jlc-english.json'), fallback: (text, signal) => localTranslator.translate(text, signal),
+    });
+  }
   catch (error) { dialog.showErrorBox('Translation cache unavailable', `${error.message}\nThe browser can still be used. Your cache has not been overwritten.`); }
   browser = new BrowserTabs(window, securePage, undefined, translator);
   await browser.initialize();
@@ -132,5 +143,5 @@ app.on('before-quit', event => {
   event.preventDefault();
   quitting = true;
   write('browser-stop');
-  output.end(() => app.quit());
+  output.end(() => { Promise.resolve(localTranslator?.close()).finally(() => app.quit()); });
 });

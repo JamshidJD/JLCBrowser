@@ -62,11 +62,11 @@ window.browser.onState(state => {
   translateButton.setAttribute('aria-busy', String(Boolean(translation?.busy)));
   document.querySelector('#translate-label').textContent = translation?.busy ? 'Translating…' : translation?.enabled ? 'Original' : 'Translate';
   translateButton.title = translation?.enabled
-    ? `Show original language. ${translation.saved} saved translations reused; ${translation.online} translated online.${translation.error ? ` ${translation.error}` : ''}`
-    : 'Translate this page to English. Saved text works offline; new text is sent to Google.';
+    ? `Show original language. ${translation.saved} saved translations reused; ${translation.online} translated by Google; ${translation.local || 0} translated on this PC.${translation.error ? ` ${translation.error}` : ''}`
+    : 'Translate to English: saved translations first, Google next, and the local Chinese model if Google fails.';
   const translationStatus = document.querySelector('#translate-status');
   translationStatus.hidden = !translation?.error;
-  translationStatus.textContent = translation?.error ? (translation.saved + translation.online ? 'Partly translated' : 'Translation unavailable') : '';
+  translationStatus.textContent = translation?.error ? (translation.remaining ? `${translation.rateLimited ? 'Google limit: ' : ''}${translation.remaining} untranslated` : 'Translation unavailable') : '';
   translationStatus.title = translation?.error || '';
   const selected = tabs.querySelector('[aria-selected="true"]');
   if (previousActive !== String(state.active)) selected?.scrollIntoView({ block: 'nearest', inline: 'nearest' });

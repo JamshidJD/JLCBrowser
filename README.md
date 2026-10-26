@@ -8,7 +8,7 @@ This repository contains the source code and tests. Local browser profiles, logi
 
 ## Run
 
-For the packaged Windows app, double-click **JLC Browser** on the desktop, or run `release/JLCBrowser-0.3.2-win-x64/JLCBrowser.exe`. Keep the whole release folder together. Node.js and npm are not needed to run it. This local build is unsigned.
+For the packaged Windows app, double-click **JLC Browser** on the desktop, or run `release/JLCBrowser-0.4.2-win-x64/JLCBrowser.exe`. Keep the whole release folder together, including `resources/` and DLLs. Node.js and npm are not needed to run it. The Chinese-to-English model and runtime are included; no further model download is required. This local build is unsigned.
 
 The packaged app stores its profile and logs under `%APPDATA%\JLCBrowser`, separately from the development profile. Sign in once when first opening it. The same DNS and performance-script exclusions are enabled without command-line arguments. `JLCBrowser.exe --baseline --system-dns` restores the baseline settings.
 
@@ -41,9 +41,21 @@ Click **Translate** beside Reload to translate the active page into English in p
 
 The requested hybrid mode looks up exact source text in a persistent local cache first. Only missing text is sent to Google over HTTPS, without website cookies, credentials, URLs, form values or file contents. Successfully translated text is saved to `%APPDATA%\JLCBrowser\translations.json` (or the project directory in development) and reused after restarting, including offline. The cache is plain JSON containing source/translated text and should be treated as private. It retains up to 10,000 entries / approximately 16 MiB, evicting the oldest entries if needed. The build excludes this cache.
 
-Offline mode can translate previously cached labels, not unseen text. If Google is unreachable or rejects a request, cached text remains usable and the toolbar reports a partial/unavailable translation. Toggle off and on to retry. The implementation uses Google's public web translation endpoint, which is not the authenticated Google Cloud Translation API and may change or be rate-limited; no availability guarantee or API key is provided.
+The order is **saved local translations/glossary → Google for missing text → local Chinese-to-English model if Google fails**. Both engines' successful results are saved to the same cache. During a Google failure/verification cooldown, missing text goes directly to the local model. The toolbar tooltip distinguishes saved, Google and on-PC translations. Google uses its public web endpoint, not the authenticated Cloud API; no Google API key is required.
 
-Translation covers ordinary visible text, placeholders/tooltips and accessible frames on the same origin. It skips editable text, input values, native select options, code blocks, `translate="no"` / `.notranslate` regions, images, canvas, closed shadow roots and cross-origin frames. Live form controls and page handlers are preserved. Original text that the site has changed independently is not overwritten when restoring.
+The local model is `Xenova/opus-mt-zh-en` (quantized ONNX conversion of Helsinki-NLP's Chinese-to-English model), pinned to revision `39d480d52a9ea3065a1f117adfe4dbc55de10e6f`. Its files are about 119.5 MB including the tokenizer and are verified against pinned SHA-256/Git blob hashes by `prepare-local-model.cjs`. Model attribution and CC BY 4.0 license information are in `models/opus-mt-zh-en/MODEL-NOTICE.txt`. Inference runs on CPU in a background worker with two inference threads. Remote model loading and all worker fetch calls are disabled. It loads lazily, can translate previously unseen Chinese without Google, and never sends that inference text off the PC. Translation quality varies, especially for specialized terms, names and long phrases; the library warns that its Marian tokenizer support can be slightly inaccurate. Other source languages need Google or a future language-specific local model.
+
+Changing content and newly visible text (including CSS-only visibility changes) are rescanned every 1.5 seconds while translation is enabled. Successful batches are applied incrementally. If both engines fail, the toolbar shows remaining untranslated text and retries with backoff. Turning translation off or navigating to a new document cancels pending work; canceled local inference is interrupted and cannot change the restored page.
+
+Version 0.3.4 bundles the standard order-list labels observed on JLC's PCB order page in `jlc-english.json`, so those controls can translate without a Google request. Verified bundled terms take precedence over old machine translations. Order-number prefixes and piece counts preserve the original identifier/numeric text. This glossary contains UI labels only, with no customer or order records.
+
+Google requests use Chromium networking in a separate non-persistent session with credentials omitted. Every tab shares one serialized translation queue, with Google request starts at least 1.2 seconds apart. HTTP 429 pauses all new Google requests for at least 60 seconds and respects any longer `Retry-After` header. Other provider failures use a one-minute Google cooldown while local inference is available. These measures respect provider restrictions; they do not remove them.
+
+Redirects are handled with Chromium's native request API because Electron's `session.fetch` cancels manual redirects. It follows at most three redirects, only to the HTTPS `/translate_a/single` endpoints on `translate.googleapis.com` or `translate.google.com`. Redirects to `google.com/sorry/` or Google's consent page are not followed: they cause a shared five-minute Google cooldown, with missing text translated locally. This does not bypass Google's verification requirement. The bundled glossary also includes the observed 3D-order issue-history, contract, production-status and dispatch-time labels; numeric identifiers and timestamps remain unchanged.
+
+Translation covers ordinary visible text, placeholders/tooltips, open shadow roots and same-origin/cross-origin frames. The page title follows the same translation toggle and cache, updating the browser tab and window title bars even when the site changes its title. Turning translation off restores the latest original title. Dialogs opened later, asynchronous modal content, and navigated or nested frames are checked automatically while translation is enabled. Each frame uses its own isolated script world through the existing browser debugger; website scripts keep their normal origin restrictions and cannot access translation state. Hidden frames are skipped; previously translated hidden modals still restore when translation is switched off. Opening DevTools detaches this frame translation connection; restart the browser with DevTools closed to resume it.
+
+Translation skips editable text, input values, native select options, code blocks, `translate="no"` / `.notranslate` regions, images, canvas and closed shadow roots. Live form controls and page handlers are preserved. Original text that the site has changed independently is not overwritten when restoring.
 
 ## Smaller uploads
 
@@ -72,6 +84,9 @@ npm.cmd test
 npm.cmd run test:browser
 npm.cmd run test:tabs
 npm.cmd run test:translation
+npm.cmd run test:modals
+npm.cmd run test:translation-network
+npm.cmd run test:local
 npm.cmd run test:dns
 ```
 
@@ -80,6 +95,14 @@ Unit checks cover the converter's exact triangle-coordinate round trip, malforme
 The tab integration test uses a local server to verify real popup links, POST body preservation, shared cookies, opener messaging, script-closing popups, switching, closing, navigation, toolbar IPC isolation, resize, per-tab diagnostics and cleanup. It does not submit real JLC orders or uploads.
 
 Translation tests cover persistent cache reuse with the network unavailable, batching/alignment, invalid inputs, cancellation, corrupt-cache preservation, exact DOM restoration, dynamic text, same-origin frames, private form values, selected files, page handlers, pending requests, isolated script execution and late responses after toggling off. Automated integration fixtures use a fake provider and submit no private data to Google.
+
+The modal integration test checks live tab/window titles, restoration to the latest original title, offline title reuse, late-opened dialogs, asynchronous updates, open shadow roots, hidden/reopened cross-site and nested frames, frame navigation/removal, restoration, local cache reuse, private inputs, and unchanged page origin restrictions. Pass a release's `resources/app` directory to `electron test/modals.cjs` to exercise the packaged translation code.
+
+The native translation-network test checks manual redirect headers, request bodies, response parsing, cookie exclusion, abort and `Retry-After` against a local server. Unit tests cover the destination allowlist, POST-preserving redirects and verification redirects without following or sending text to a challenge page.
+
+`test:local` runs the real bundled model in Electron with Google deliberately failing, verifies new Chinese text is translated and cached, and checks cancellation/recovery. `electron test/local-translation.cjs RELEASE/resources/app` checks the actual packaged runtime/model. The page integration test also exercises real local inference in-place with fake Google verification failure and verifies the page restores correctly.
+
+For a clean source checkout, run `npm.cmd install`, `npm.cmd run prepare:model`, then `npm.cmd run build:win`. Build copies only app files, verified model assets and installed production dependencies; unused ONNX native platforms are excluded. `sharp` is overridden to patched version 0.35.5 because the pinned Transformers.js release imports it; translation uses no image features.
 
 The separate DNS test makes fresh public hostname lookups for JLC's login and upload hosts through the configured encrypted resolver. It requires network access.
 

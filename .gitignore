@@ -6,6 +6,7 @@ prepared-uploads/
 release/
 translations.json
 translations.json.tmp
+models/
 
 # Local credentials and private captures must never be published.
 .env

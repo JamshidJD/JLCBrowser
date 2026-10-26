@@ -1,0 +1,104 @@
+const { app, BrowserWindow } = require('electron');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const http = require('node:http');
+const assert = require('node:assert/strict');
+const application = path.resolve(process.argv[2] || path.join(__dirname, '..'));
+const { BrowserTabs } = require(path.join(application, 'browser-tabs.cjs'));
+const { TranslationService } = require(path.join(application, 'translation-service.cjs'));
+const { attachDiagnostics } = require(path.join(application, 'diagnostics.cjs'));
+const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jlc-modal-test-'));
+app.setPath('userData', path.join(directory, 'profile'));
+app.on('window-all-closed', () => {});
+const timeout = setTimeout(() => { console.error('Modal translation test timed out'); app.exit(1); }, 45000);
+async function until(predicate, label) {
+  const deadline = Date.now() + 10000;
+  while (!await predicate()) {
+    if (Date.now() > deadline) throw new Error(`Timed out: ${label}`);
+    await new Promise(resolve => setTimeout(resolve, 40));
+  }
+}
+
+app.whenReady().then(async () => {
+  const labels = { '页面内容': 'Page content', '弹窗内容': 'Modal content', '稍后加载': 'Loaded later', '嵌入内容': 'Embedded content', '嵌套内容': 'Nested content', '更新内容': 'Updated content', '组件弹窗': 'Component modal' };
+  let calls = 0;
+  const sent = new Set();
+  const service = new TranslationService(path.join(directory, 'translations.json'), async text => {
+    calls++;
+    return text.split('\n').map(source => {
+      assert(source in labels, `Unexpected/private text: ${source}`);
+      sent.add(source); return labels[source];
+    }).join('\n');
+  }, { intervalMs: 0 });
+  let origin;
+  const server = http.createServer((request, response) => {
+    response.setHeader('Content-Type', 'text/html; charset=utf-8');
+    if (request.url.startsWith('/nested')) return response.end('<html lang="zh"><head><title>不应发送的子框架标题</title></head><body><p>嵌套内容</p></body></html>');
+    if (request.url.startsWith('/frame')) return response.end(`<html lang="zh"><body><p id="label">${request.url.includes('new') ? '更新内容' : '嵌入内容'}</p><input id="entered" value="不可发送的密码" placeholder="弹窗内容"><div contenteditable="true">私密编辑内容</div><iframe src="${origin}/nested"></iframe></body></html>`);
+    response.end('<html lang="zh"><head><title>页面内容</title></head><body><p>页面内容</p><dialog id="modal"><p id="dialog-label">弹窗内容</p><div id="late"></div><div id="component"></div><div id="ignored" translate="no"></div></dialog><div id="frame-container" style="display:none"></div></body></html>');
+  });
+  await new Promise(resolve => server.listen(0, resolve));
+  origin = `http://127.0.0.1:${server.address().port}`;
+  const foreign = `http://localhost:${server.address().port}`;
+  const window = new BrowserWindow({ show: false, width: 1000, height: 750, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false, preload: path.join(application, 'browser-preload.cjs') } });
+  const browser = new BrowserTabs(window, contents => attachDiagnostics(contents, () => {}), origin, service);
+  await browser.initialize();
+  const contents = browser.contents;
+  const translation = browser.active.translation;
+  const read = expression => contents.executeJavaScript(expression);
+  const frame = prefix => contents.mainFrame.framesInSubtree.find(item => item.url.startsWith(prefix));
+  const tabTitle = () => window.webContents.executeJavaScript('document.querySelector(".tab.selected .tab-label")?.textContent');
+  await translation.toggle();
+  assert.equal(await read('document.querySelector("p").textContent'), 'Page content');
+  await until(async () => await tabTitle() === 'Page content' && window.getTitle() === 'Page content — JLC Browser', 'translated tab and native title bars');
+  await read('document.title="更新内容"');
+  await until(async () => contents.getTitle() === 'Updated content' && await tabTitle() === 'Updated content' && window.getTitle() === 'Updated content — JLC Browser', 'changing tab title translates automatically');
+  assert(!sent.has('弹窗内容'), 'closed dialogs are not sent for translation');
+  await read('document.querySelector("#modal").showModal()');
+  await until(async () => await read('document.querySelector("#dialog-label").textContent') === 'Modal content', 'dialog opened after translation was enabled');
+  await read('document.querySelector("#late").textContent="稍后加载"; document.querySelector("#component").attachShadow({mode:"open"}).textContent="组件弹窗"; document.querySelector("#ignored").attachShadow({mode:"open"}).innerHTML="<p>私密编辑内容</p>"');
+  await until(async () => await read('document.querySelector("#late").textContent') === 'Loaded later' && await read('document.querySelector("#component").shadowRoot.textContent') === 'Component modal', 'late content and open shadow-root modal');
+  await read('document.querySelector("#modal").close()');
+  await read(`document.querySelector('#frame-container').innerHTML='<iframe id="foreign" src="${foreign}/frame"></iframe>'`);
+  await until(() => frame(`${foreign}/frame`) && frame(`${origin}/nested`), 'cross-origin frames loaded while hidden');
+  await translation.refresh(translation.generation);
+  assert(!sent.has('嵌入内容') && !sent.has('嵌套内容'), 'hidden frame and descendants stay untranslated');
+  await read('document.querySelector("#frame-container").style.display="block"');
+  await until(async () => await frame(`${foreign}/frame`).executeJavaScript('document.querySelector("#label").textContent') === 'Embedded content', 'cross-site modal iframe');
+  await until(async () => await frame(`${origin}/nested`).executeJavaScript('document.querySelector("p").textContent') === 'Nested content', 'nested cross-site frame');
+  assert(translation.frames.sessions.size > 0, 'fixture exercises an out-of-process cross-site frame');
+  assert.equal(await read('document.querySelector("#foreign").contentDocument'), null, 'page scripts retain cross-origin restrictions');
+  assert.equal(await frame(`${foreign}/frame`).executeJavaScript('typeof window.__jlcTranslation+":"+typeof require'), 'undefined:undefined', 'isolated translation state and Node are unavailable to remote scripts');
+  assert.equal(await frame(`${foreign}/frame`).executeJavaScript('document.querySelector("#entered").value'), '不可发送的密码');
+  assert.equal(await frame(`${foreign}/frame`).executeJavaScript('document.querySelector("#entered").placeholder'), 'Modal content');
+  await frame(`${foreign}/frame`).executeJavaScript('document.querySelector("#label").textContent="更新内容"');
+  await until(async () => await frame(`${foreign}/frame`).executeJavaScript('document.querySelector("#label").textContent') === 'Updated content', 'frame updates without toggling');
+  await read(`document.querySelector('#foreign').src='${foreign}/frame?new'`);
+  await until(async () => frame(`${foreign}/frame?new`) && await frame(`${foreign}/frame?new`).executeJavaScript('document.querySelector("#label").textContent') === 'Updated content', 'navigated modal frame');
+  await read('document.querySelector("#frame-container").style.display="none"');
+  await until(() => !translation.refreshing, 'refresh finishes before restoring');
+  await translation.toggle();
+  await until(async () => contents.getTitle() === '更新内容' && await tabTitle() === '更新内容', 'title restores to the latest original');
+  assert.equal(await frame(`${foreign}/frame?new`).executeJavaScript('document.querySelector("#label").textContent'), '更新内容', 'hidden modal is restored');
+  assert.equal(await frame(`${origin}/nested`).executeJavaScript('document.querySelector("p").textContent'), '嵌套内容');
+  assert.equal(await read('document.querySelector("#dialog-label").textContent'), '弹窗内容', 'closed dialog is restored');
+  assert.equal(await read('document.querySelector("#component").shadowRoot.textContent'), '组件弹窗');
+  const before = calls;
+  service.request = async () => { throw new Error('offline'); };
+  await translation.toggle();
+  await read('document.querySelector("#modal").showModal(); document.querySelector("#frame-container").style.display="block"');
+  await until(async () => await read('document.querySelector("#dialog-label").textContent') === 'Modal content' && await frame(`${foreign}/frame?new`).executeJavaScript('document.querySelector("#label").textContent') === 'Updated content', 'reopened modals translate from local cache');
+  await until(async () => await tabTitle() === 'Updated content', 'tab title reused from cache offline');
+  assert.equal(calls, before);
+  await read('document.querySelector("#frame-container").replaceChildren()');
+  await until(() => !translation.refreshing, 'frame removal settles');
+  await translation.refresh(translation.generation);
+  assert.equal(translation.state.error, '', 'removed modal does not break translation');
+  await read('document.title="Site changed title"');
+  await translation.toggle();
+  assert.equal(await read('document.title'), 'Site changed title', 'restoring preserves a title independently changed by the site');
+  window.destroy(); server.closeAllConnections(); server.close(); clearTimeout(timeout);
+  console.log('Modals/titles passed: live tab and window titles, latest-original restoration, offline title cache, late dialogs, shadow roots, cross-site/nested frames, navigation, private inputs and origin isolation.');
+  app.exit(0);
+}).catch(error => { console.error(error); app.exit(1); });

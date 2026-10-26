@@ -1,6 +1,6 @@
 {
   "name": "jlc-browser",
-  "version": "0.3.2",
+  "version": "0.4.2",
   "private": true,
   "description": "A local JLC browser with HTTP and WebSocket diagnostics",
   "main": "main.cjs",
@@ -8,13 +8,23 @@
     "start": "electron .",
     "start:baseline": "electron . --baseline --system-dns",
     "build:win": "node build-win.cjs",
+    "prepare:model": "node prepare-local-model.cjs",
     "test": "node --test test/*.test.cjs",
     "test:browser": "electron test/browser.cjs",
     "test:tabs": "electron test/tabs.cjs",
     "test:translation": "electron test/translation.cjs",
+    "test:modals": "electron test/modals.cjs",
+    "test:translation-network": "electron test/translation-network.cjs",
+    "test:local": "electron test/local-translation.cjs",
     "test:dns": "electron test/dns.cjs"
   },
   "devDependencies": {
     "electron": "45.0.0"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "3.8.1"
+  },
+  "overrides": {
+    "sharp": "0.35.5"
   }
 }

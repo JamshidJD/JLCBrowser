@@ -13,22 +13,27 @@ globalThis.__jlcTranslation ??= (() => {
   const observe = () => {
     for (const doc of documents.keys()) observer.observe(doc.documentElement, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['placeholder', 'title', 'aria-label', 'class', 'style', 'hidden'] });
   };
-  function roots(doc = document) {
-    const result = [doc];
-    for (const frame of doc.querySelectorAll('iframe,frame')) {
-      try { if (frame.getClientRects().length && frame.contentDocument?.body) result.push(...roots(frame.contentDocument)); } catch { /* Cross-origin frames retain their own content. */ }
-    }
-    return result;
-  }
   const read = record => record.attribute ? record.node.getAttribute(record.attribute) : record.node.nodeValue;
   const write = (record, value) => record.attribute ? record.node.setAttribute(record.attribute, value) : record.node.nodeValue = value;
+  function roots(root = document) {
+    const result = [root];
+    for (const element of root.querySelectorAll('*')) if (element.shadowRoot) result.push(...roots(element.shadowRoot));
+    return result;
+  }
+  function excluded(element, selector = ignored) {
+    while (element) {
+      if (element.closest(selector)) return true;
+      element = element.getRootNode().host;
+    }
+    return false;
+  }
 
-  function collect() {
-    if (!document.body) return [];
+  function collect(force = false) {
+    if (!document.body) return { entries: [], remaining: 0 };
     if (!active) {
       active = true; dirty = true;
     }
-    const pages = roots();
+    const pages = [document];
     for (const doc of pages) if (!documents.has(doc)) {
       documents.set(doc, doc.documentElement.getAttribute('lang'));
       doc.addEventListener('scroll', markDirty, true);
@@ -36,10 +41,11 @@ globalThis.__jlcTranslation ??= (() => {
       dirty = true;
     }
     observe();
-    if (!dirty) return [];
+    if (!dirty && !force) return { entries: [], remaining: 0 };
     dirty = false;
     for (const [id, record] of records) if (!record.node.isConnected || !pages.includes(record.node.ownerDocument)) records.delete(id);
     const pending = [];
+    let remaining = 0;
     function add(node, attribute = '') {
       const value = attribute ? node.getAttribute(attribute) : node.nodeValue;
       if (!value?.trim()) return;
@@ -55,22 +61,29 @@ globalThis.__jlcTranslation ??= (() => {
       }
       if (value === record.translated) return;
       if (value !== record.original) { record.original = value; record.translated = null; }
-      if (pending.length < 250) pending.push({ id, text });
+      remaining++;
+      if (pending.length < 5000) pending.push({ id, text });
       else dirty = true;
     }
-    for (const doc of pages) {
-    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+    if (window === window.top) {
+      const title = document.querySelector('title');
+      if (title && !excluded(title)) for (const node of title.childNodes) if (node.nodeType === Node.TEXT_NODE) add(node);
+    }
+    for (const root of roots()) {
+    const doc = root.ownerDocument || root;
+    const walker = doc.createTreeWalker(root.body || root, NodeFilter.SHOW_TEXT);
     let node;
     while ((node = walker.nextNode())) {
-      const parent = node.parentElement;
-      if (parent && !parent.closest(ignored) && parent.getClientRects().length && doc.defaultView.getComputedStyle(parent).visibility !== 'hidden') add(node);
+      if (!/[^\x00-\x7F]/.test(node.nodeValue)) continue;
+      const parent = node.parentElement || node.parentNode?.host;
+      if (parent && !excluded(parent) && parent.getClientRects().length && doc.defaultView.getComputedStyle(parent).visibility !== 'hidden') add(node);
     }
-    for (const element of doc.body.querySelectorAll('[placeholder],[title],[aria-label]')) {
-      if (element.closest('[contenteditable]:not([contenteditable="false"]),[translate="no"],.notranslate,script,style,svg,canvas') || !element.getClientRects().length || doc.defaultView.getComputedStyle(element).visibility === 'hidden') continue;
+    for (const element of (root.body || root).querySelectorAll('[placeholder],[title],[aria-label]')) {
+      if (excluded(element, '[contenteditable]:not([contenteditable="false"]),[translate="no"],.notranslate,script,style,svg,canvas') || !element.getClientRects().length || doc.defaultView.getComputedStyle(element).visibility === 'hidden') continue;
       for (const attribute of ['placeholder', 'title', 'aria-label']) add(element, attribute);
     }
     }
-    return pending;
+    return { entries: pending, remaining };
   }
 
   function apply(entries) {
@@ -79,11 +92,12 @@ globalThis.__jlcTranslation ??= (() => {
     let changed = 0;
     for (const entry of entries) {
       const record = records.get(entry.id);
+      if (record?.translated !== null && record?.translated !== undefined && read(record) === record.translated) continue;
       if (!record?.node.isConnected || typeof entry.translation !== 'string' || read(record) !== record.original || record.original.trim().replace(/\s+/g, ' ') !== entry.text) continue;
       const leading = record.original.match(/^\s*/)[0];
       const trailing = record.original.match(/\s*$/)[0];
       record.translated = leading + entry.translation + trailing;
-      if (!record.attribute && record.node.parentElement) {
+      if (!record.attribute && record.node.parentElement && record.node.parentElement.tagName !== 'TITLE') {
         const element = record.node.parentElement;
         if (!fonts.has(element)) {
           fonts.set(element, { value: element.style.getPropertyValue('font-family'), priority: element.style.getPropertyPriority('font-family') });
